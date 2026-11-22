@@ -1,0 +1,6 @@
+{
+  "name": "HelpMeWash",
+  "description": "Your speedy online laundry service. Book a pickup slot, select your clothes for wash, dry, fold & ironing, and pay easily in 3 steps.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
