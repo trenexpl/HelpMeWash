@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Layers, Shirt, Plus, Check } from 'lucide-react';
-import { TOPS_KNITWEAR_RATES, formatCurrency } from '../data/laundryCatalog';
+import { formatCurrency } from '../data/laundryCatalog';
+import { useFirebase } from '../contexts/FirebaseContext';
 
 interface ServiceShowcaseProps {
   quantities: Record<string, number>;
@@ -31,8 +32,31 @@ export function ServiceShowcase({
   onQuickAddItem,
   onJumpToStep2,
 }: ServiceShowcaseProps) {
+  const { services, gallery, siteConfig } = useFirebase();
   const [rackError, setRackError] = useState(false);
   const [justAddedId, setJustAddedId] = useState<string | null>(null);
+
+  const visibleGallery = useMemo(
+    () => gallery.filter((g) => g.isVisible && g.placement === 'gallery'),
+    [gallery]
+  );
+
+  const featuredWashBag = useMemo(
+    () => services.find((s) => s.id === 'wdf-6kg' && s.isActive) ?? services[0],
+    [services]
+  );
+
+  const featuredIroning = useMemo(
+    () => services.find((s) => s.id === 'iron-addon' && s.isActive),
+    [services]
+  );
+
+  const rateTableItems = useMemo(() => {
+    const active = services.filter((s) => s.isActive);
+    const tops = active.filter((s) => s.category === 'tops_knitwear');
+    if (tops.length > 0) return tops;
+    return active.filter((s) => s.featuredOnCard);
+  }, [services]);
 
   function handleQuickAdd(id: string) {
     onQuickAddItem(id);
@@ -47,7 +71,7 @@ export function ServiceShowcase({
       id="services"
       className="py-10 sm:py-14 border-t border-[#E2D9C5] bg-[#F7F3EA]"
     >
-      <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 space-y-12">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-start">
           {/* Left Column: WHY HELPMEWASH? + Quick Clear Convenient */}
           <div id="why-us" className="lg:col-span-6 space-y-6">
@@ -84,7 +108,7 @@ export function ServiceShowcase({
               <div className="sm:col-span-6 rounded-2xl overflow-hidden border border-[#E2D9C5] bg-white min-h-[200px]">
                 {!rackError ? (
                   <img
-                    src="/src/assets/images/care_garment_rack_1795342737271.jpg"
+                    src={siteConfig.careImageUrl}
                     alt="Pressed shirts and knitwear hanging neatly on wooden hangers"
                     referrerPolicy="no-referrer"
                     onError={() => setRackError(true)}
@@ -122,7 +146,7 @@ export function ServiceShowcase({
             </div>
           </div>
 
-          {/* Right Column: OUR SERVICES + Exact Rate Table */}
+          {/* Right Column: OUR SERVICES + Live Rate Table */}
           <div className="lg:col-span-6 space-y-5">
             <div>
               <h2 className="font-display text-2xl sm:text-3xl font-extrabold text-[#0E2742] tracking-tight">
@@ -135,51 +159,55 @@ export function ServiceShowcase({
 
             {/* Highlight Service Cards */}
             <div className="space-y-3">
-              <div className="bg-white rounded-2xl border border-[#E2D9C5] px-5 py-4 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-[#EBBF4B] text-[#0E2742] flex items-center justify-center shrink-0">
-                    <Layers className="w-6 h-6" aria-hidden="true" />
+              {featuredWashBag && (
+                <div className="bg-white rounded-2xl border border-[#E2D9C5] px-5 py-4 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-[#EBBF4B] text-[#0E2742] flex items-center justify-center shrink-0">
+                      <Layers className="w-6 h-6" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-extrabold uppercase tracking-wider text-[#0E2742]">
+                        WASH · DRY · FOLD
+                      </p>
+                      <p className="font-display font-extrabold text-xl sm:text-2xl text-[#0E2742] tabular-nums">
+                        From ${featuredWashBag.price} {featuredWashBag.unit}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs font-extrabold uppercase tracking-wider text-[#0E2742]">
-                      WASH · DRY · FOLD
-                    </p>
-                    <p className="font-display font-extrabold text-xl sm:text-2xl text-[#0E2742] tabular-nums">
-                      From $30 / 6kg
-                    </p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickAdd(featuredWashBag.id)}
+                    className="px-4 py-2 min-h-[40px] rounded-xl bg-[#F7F3EA] hover:bg-[#EBBF4B] text-[#0E2742] text-xs font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    {justAddedId === featuredWashBag.id ? 'Added 6kg' : '+ Add 6kg'}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleQuickAdd('wdf-6kg')}
-                  className="px-4 py-2 min-h-[40px] rounded-xl bg-[#F7F3EA] hover:bg-[#EBBF4B] text-[#0E2742] text-xs font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  {justAddedId === 'wdf-6kg' ? 'Added 6kg' : '+ Add 6kg'}
-                </button>
-              </div>
+              )}
 
-              <div className="bg-white rounded-2xl border border-[#E2D9C5] px-5 py-4 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-[#EBBF4B] text-[#0E2742] flex items-center justify-center shrink-0">
-                    <Shirt className="w-6 h-6" aria-hidden="true" />
+              {featuredIroning && (
+                <div className="bg-white rounded-2xl border border-[#E2D9C5] px-5 py-4 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-[#EBBF4B] text-[#0E2742] flex items-center justify-center shrink-0">
+                      <Shirt className="w-6 h-6" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-extrabold uppercase tracking-wider text-[#0E2742]">
+                        IRONING
+                      </p>
+                      <p className="font-display font-extrabold text-xl sm:text-2xl text-[#0E2742] tabular-nums">
+                        From {formatCurrency(featuredIroning.price)} {featuredIroning.unit}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs font-extrabold uppercase tracking-wider text-[#0E2742]">
-                      IRONING
-                    </p>
-                    <p className="font-display font-extrabold text-xl sm:text-2xl text-[#0E2742] tabular-nums">
-                      From $2.90 / item
-                    </p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickAdd(featuredIroning.id)}
+                    className="px-4 py-2 min-h-[40px] rounded-xl bg-[#F7F3EA] hover:bg-[#EBBF4B] text-[#0E2742] text-xs font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    {justAddedId === featuredIroning.id ? 'Added Ironing' : '+ Add Iron'}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleQuickAdd('iron-addon')}
-                  className="px-4 py-2 min-h-[40px] rounded-xl bg-[#F7F3EA] hover:bg-[#EBBF4B] text-[#0E2742] text-xs font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  {justAddedId === 'iron-addon' ? 'Added Ironing' : '+ Add Iron'}
-                </button>
-              </div>
+              )}
             </div>
 
             {/* Tops & Knitwear Interactive Rate Card */}
@@ -214,7 +242,7 @@ export function ServiceShowcase({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EFE9DA] text-sm">
-                    {TOPS_KNITWEAR_RATES.map((row, idx) => {
+                    {rateTableItems.map((row, idx) => {
                       const count = quantities[row.id] ?? 0;
                       const isJustAdded = justAddedId === row.id;
                       return (
@@ -223,7 +251,7 @@ export function ServiceShowcase({
                           className={idx % 2 === 1 ? 'bg-[#FBF8F1]' : 'bg-white'}
                         >
                           <td className="px-5 py-3 font-medium text-[#0E2742]">
-                            {row.service}
+                            {row.name}
                           </td>
                           <td className="px-4 py-3 text-right font-semibold text-[#0E2742] tabular-nums">
                             {formatCurrency(row.price)}
@@ -260,6 +288,45 @@ export function ServiceShowcase({
             </div>
           </div>
         </div>
+
+        {/* Admin-uploaded Showcase Gallery (renders only when visible gallery photos exist) */}
+        {visibleGallery.length > 0 && (
+          <div className="pt-4 border-t border-[#E2D9C5] space-y-5">
+            <div>
+              <h3 className="font-display text-xl sm:text-2xl font-extrabold text-[#0E2742]">
+                Fresh From Our Studio
+              </h3>
+              <p className="text-sm text-[#44596F]">
+                Real care results from the HelpMeWash team.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {visibleGallery.map((item) => (
+                <div
+                  key={item.id}
+                  className="bg-white rounded-2xl border border-[#E2D9C5] overflow-hidden"
+                >
+                  <div className="aspect-[4/3] bg-[#EFE9DA] overflow-hidden">
+                    <img
+                      src={item.imageUrl}
+                      alt={item.title}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="p-4">
+                    <h4 className="font-display font-bold text-base text-[#0E2742]">
+                      {item.title}
+                    </h4>
+                    {item.caption && (
+                      <p className="text-xs text-[#44596F] mt-1">{item.caption}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );

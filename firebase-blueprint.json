@@ -1,0 +1,443 @@
+{
+  "entities": {
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized HelpMeWash administrator record.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Firebase Auth UID of the admin user."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200,
+          "description": "Verified email address of the admin user."
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Admin display name."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin was added."
+        }
+      },
+      "required": ["uid", "email", "displayName", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Signed-in customer profile tracking loyalty status and order totals.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Firebase Auth UID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200,
+          "description": "Customer email address."
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Customer full name."
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional profile avatar URL."
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 25,
+          "description": "Saved customer phone or WhatsApp number."
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 240,
+          "description": "Saved default pickup address."
+        },
+        "postalCode": {
+          "type": "string",
+          "maxLength": 12,
+          "description": "Saved postal code."
+        },
+        "adminNotes": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Internal admin notes about customer preferences."
+        },
+        "loyaltyTier": {
+          "type": "string",
+          "enum": ["member", "vip"],
+          "description": "Customer loyalty tier."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "displayName", "loyaltyTier", "createdAt", "updatedAt"]
+    },
+    "ServiceItem": {
+      "title": "ServiceItem",
+      "description": "Laundry bag package or individual garment care service configured by admin.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 80
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "category": {
+          "type": "string",
+          "enum": ["wash_fold", "tops_knitwear", "bottoms_dresses", "bedding_home"]
+        },
+        "categoryLabel": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "serviceType": {
+          "type": "string",
+          "enum": ["Wash · Dry · Fold", "Wash & Iron", "Steam & Iron", "Gentle Wash"]
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "price": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "imageUrl": {
+          "type": "string",
+          "maxLength": 300000,
+          "description": "Optional image URL or compressed image data URI for the service item."
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "featuredOnCard": {
+          "type": "boolean"
+        },
+        "sortOrder": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "category",
+        "categoryLabel",
+        "serviceType",
+        "description",
+        "price",
+        "unit",
+        "isActive",
+        "sortOrder",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GalleryImage": {
+      "title": "GalleryImage",
+      "description": "Showcase or gallery photo uploaded by HelpMeWash admin.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "caption": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "placement": {
+          "type": "string",
+          "enum": ["gallery", "hero", "care"]
+        },
+        "imageUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 350000
+        },
+        "isVisible": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["title", "caption", "placement", "imageUrl", "isVisible", "createdAt", "updatedAt"]
+    },
+    "SiteConfig": {
+      "title": "SiteConfig",
+      "description": "Storefront configuration managed by HelpMeWash admin.",
+      "type": "object",
+      "properties": {
+        "heroHeadline": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "heroSubheadline": {
+          "type": "string",
+          "maxLength": 280
+        },
+        "heroImageUrl": {
+          "type": "string",
+          "maxLength": 350000
+        },
+        "careImageUrl": {
+          "type": "string",
+          "maxLength": 350000
+        },
+        "whatsappNumber": {
+          "type": "string",
+          "maxLength": 25
+        },
+        "instagramHandle": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "loyaltyDiscountPercent": {
+          "type": "number"
+        },
+        "freeDeliveryThreshold": {
+          "type": "number"
+        },
+        "standardDeliveryFee": {
+          "type": "number"
+        },
+        "expressFee": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "heroHeadline",
+        "heroSubheadline",
+        "whatsappNumber",
+        "instagramHandle",
+        "loyaltyDiscountPercent",
+        "freeDeliveryThreshold",
+        "standardDeliveryFee",
+        "expressFee",
+        "updatedAt"
+      ]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Laundry pickup booking created by a guest or signed-in loyalty customer.",
+      "type": "object",
+      "properties": {
+        "orderCode": {
+          "type": "string",
+          "pattern": "^HMW-[0-9]{4,6}$",
+          "maxLength": 16
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "customerEmail": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "isGuest": {
+          "type": "boolean"
+        },
+        "pickupDateIso": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "pickupDayLabel": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "pickupSlotId": {
+          "type": "string",
+          "enum": ["morning", "midday", "afternoon", "evening"]
+        },
+        "pickupWindow": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "turnaround": {
+          "type": "string",
+          "enum": ["standard", "express"]
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 25
+        },
+        "address": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 240
+        },
+        "postalCode": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 12
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "items": {
+          "type": "array",
+          "description": "Bounded list of selected laundry items (1 to 30)."
+        },
+        "detergent": {
+          "type": "string",
+          "enum": ["signature", "hypoallergenic"]
+        },
+        "washTemp": {
+          "type": "string",
+          "enum": ["cold", "warm"]
+        },
+        "finish": {
+          "type": "string",
+          "enum": ["folded", "hangers"]
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["paynow", "card", "cash_on_pickup"]
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["pending", "paid"]
+        },
+        "orderStatus": {
+          "type": "string",
+          "enum": ["booked", "picked_up", "washing", "folding_ironing", "out_for_delivery", "completed", "cancelled"]
+        },
+        "subtotal": {
+          "type": "number"
+        },
+        "loyaltyDiscountRate": {
+          "type": "number"
+        },
+        "loyaltyDiscountAmount": {
+          "type": "number"
+        },
+        "deliveryFee": {
+          "type": "number"
+        },
+        "expressFee": {
+          "type": "number"
+        },
+        "total": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "orderCode",
+        "isGuest",
+        "pickupDateIso",
+        "pickupDayLabel",
+        "pickupSlotId",
+        "pickupWindow",
+        "turnaround",
+        "fullName",
+        "phone",
+        "address",
+        "postalCode",
+        "items",
+        "detergent",
+        "washTemp",
+        "finish",
+        "paymentMethod",
+        "paymentStatus",
+        "orderStatus",
+        "subtotal",
+        "loyaltyDiscountRate",
+        "loyaltyDiscountAmount",
+        "deliveryFee",
+        "expressFee",
+        "total",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Admin role allowlist documents keyed by Firebase Auth UID."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Signed-in customer loyalty profiles."
+    },
+    "/services/{serviceId}": {
+      "schema": { "$ref": "#/entities/ServiceItem" },
+      "description": "Publicly readable laundry service catalog managed by admins."
+    },
+    "/gallery/{imageId}": {
+      "schema": { "$ref": "#/entities/GalleryImage" },
+      "description": "Publicly readable storefront photos & care showcase images managed by admins."
+    },
+    "/siteConfig/{configId}": {
+      "schema": { "$ref": "#/entities/SiteConfig" },
+      "description": "Storefront hero, branding, pricing fees, and loyalty settings."
+    },
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Customer and guest laundry pickup bookings with PII isolation."
+    }
+  }
+}

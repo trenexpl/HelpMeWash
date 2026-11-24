@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import {
   Calendar,
   Clock,
@@ -16,9 +17,10 @@ import {
   Sparkles,
   AlertCircle,
   ShoppingBag,
+  Award,
+  LogOut,
 } from 'lucide-react';
 import {
-  LAUNDRY_CATALOG,
   TIME_SLOTS,
   getUpcomingDays,
   formatCurrency,
@@ -29,6 +31,8 @@ import {
   type FinishOption,
   type PaymentMethod,
 } from '../data/laundryCatalog';
+import { useFirebase } from '../contexts/FirebaseContext';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 
 export interface CustomerDetails {
   fullName: string;
@@ -44,6 +48,8 @@ export interface ConfirmedOrder {
   pickupDayLabel: string;
   pickupWindow: string;
   turnaround: TurnaroundSpeed;
+  isGuest: boolean;
+  customerEmail: string;
   customer: CustomerDetails;
   items: { id: string; name: string; qty: number; unitPrice: number }[];
   detergent: DetergentOption;
@@ -51,6 +57,8 @@ export interface ConfirmedOrder {
   finish: FinishOption;
   paymentMethod: PaymentMethod;
   subtotal: number;
+  loyaltyDiscountRate: number;
+  loyaltyDiscountAmount: number;
   deliveryFee: number;
   expressFee: number;
   total: number;
@@ -62,6 +70,7 @@ interface BookingWizardProps {
   quantities: Record<string, number>;
   onUpdateQuantity: (itemId: string, delta: number) => void;
   onResetBooking: () => void;
+  onOpenAccount: () => void;
 }
 
 const CATEGORY_TABS: { id: 'all' | ServiceCategory; label: string }[] = [
@@ -72,17 +81,16 @@ const CATEGORY_TABS: { id: 'all' | ServiceCategory; label: string }[] = [
   { id: 'bedding_home', label: 'Bedding & Home' },
 ];
 
-const FREE_DELIVERY_THRESHOLD = 30;
-const STANDARD_DELIVERY_FEE = 4;
-const EXPRESS_FEE = 8;
-
 export function BookingWizard({
   activeStep,
   onStepChange,
   quantities,
   onUpdateQuantity,
   onResetBooking,
+  onOpenAccount,
 }: BookingWizardProps) {
+  const { user, userProfile, services, siteConfig, signInWithGoogle, signOutUser, updateOwnProfile } =
+    useFirebase();
   const days = useMemo(() => getUpcomingDays(7), []);
 
   // Step 1 state
@@ -98,6 +106,18 @@ export function BookingWizard({
   });
   const [step1Errors, setStep1Errors] = useState<Partial<Record<keyof CustomerDetails, string>>>({});
 
+  // Pre-fill empty pickup fields when signed-in customer profile loads
+  useEffect(() => {
+    if (!userProfile) return;
+    setCustomer((prev) => ({
+      fullName: prev.fullName || userProfile.displayName || '',
+      phone: prev.phone || userProfile.phone || '',
+      address: prev.address || userProfile.address || '',
+      postalCode: prev.postalCode || userProfile.postalCode || '',
+      notes: prev.notes,
+    }));
+  }, [userProfile]);
+
   // Step 2 state
   const [categoryFilter, setCategoryFilter] = useState<'all' | ServiceCategory>('all');
   const [detergent, setDetergent] = useState<DetergentOption>('signature');
@@ -112,19 +132,27 @@ export function BookingWizard({
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvc, setCardCvc] = useState('');
   const [paymentError, setPaymentError] = useState('');
+  const [submittingOrder, setSubmittingOrder] = useState(false);
   const [confirmedOrder, setConfirmedOrder] = useState<ConfirmedOrder | null>(null);
   const [copiedReceipt, setCopiedReceipt] = useState(false);
 
   const selectedDay = days.find((d) => d.iso === selectedDayIso) ?? days[0];
   const selectedSlot = TIME_SLOTS.find((s) => s.id === selectedSlotId) ?? TIME_SLOTS[0];
 
+  const activeCatalog = useMemo(
+    () => services.filter((s) => s.isActive),
+    [services]
+  );
+
   const selectedItems = useMemo(() => {
-    return LAUNDRY_CATALOG.filter((item) => (quantities[item.id] ?? 0) > 0).map((item) => ({
-      ...item,
-      qty: quantities[item.id],
-      lineTotal: item.price * quantities[item.id],
-    }));
-  }, [quantities]);
+    return activeCatalog
+      .filter((item) => (quantities[item.id] ?? 0) > 0)
+      .map((item) => ({
+        ...item,
+        qty: quantities[item.id],
+        lineTotal: item.price * quantities[item.id],
+      }));
+  }, [activeCatalog, quantities]);
 
   const totalItemCount = useMemo(
     () => selectedItems.reduce((sum, item) => sum + item.qty, 0),
@@ -136,15 +164,28 @@ export function BookingWizard({
     [selectedItems]
   );
 
+  const isLoyaltySignedIn = Boolean(user && user.emailVerified);
+  const loyaltyDiscountRate = isLoyaltySignedIn
+    ? Math.max(0, Math.min(0.25, siteConfig.loyaltyDiscountPercent / 100))
+    : 0;
+  const loyaltyDiscountAmount = Number((subtotal * loyaltyDiscountRate).toFixed(2));
+
   const deliveryFee =
-    subtotal === 0 ? 0 : subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : STANDARD_DELIVERY_FEE;
-  const expressFee = turnaround === 'express' && subtotal > 0 ? EXPRESS_FEE : 0;
-  const grandTotal = subtotal + deliveryFee + expressFee;
+    subtotal === 0
+      ? 0
+      : subtotal >= siteConfig.freeDeliveryThreshold
+        ? 0
+        : siteConfig.standardDeliveryFee;
+  const expressFee = turnaround === 'express' && subtotal > 0 ? siteConfig.expressFee : 0;
+  const grandTotal = Math.max(
+    0,
+    Number((subtotal - loyaltyDiscountAmount + deliveryFee + expressFee).toFixed(2))
+  );
 
   const filteredCatalog = useMemo(() => {
-    if (categoryFilter === 'all') return LAUNDRY_CATALOG;
-    return LAUNDRY_CATALOG.filter((item) => item.category === categoryFilter);
-  }, [categoryFilter]);
+    if (categoryFilter === 'all') return activeCatalog;
+    return activeCatalog.filter((item) => item.category === categoryFilter);
+  }, [activeCatalog, categoryFilter]);
 
   function validateStep1(): boolean {
     const errors: Partial<Record<keyof CustomerDetails, string>> = {};
@@ -185,7 +226,7 @@ export function BookingWizard({
     return `${digits.slice(0, 2)}/${digits.slice(2)}`;
   }
 
-  function handleConfirmOrder() {
+  async function handleConfirmOrder() {
     setPaymentError('');
     if (totalItemCount === 0) {
       setPaymentError('Your basket is empty. Please select clothes in Step 02.');
@@ -204,38 +245,97 @@ export function BookingWizard({
       }
     }
 
+    setSubmittingOrder(true);
     const randomCode = Math.floor(1000 + Math.random() * 9000);
-    const order: ConfirmedOrder = {
-      orderId: `HMW-${randomCode}`,
-      createdAt: new Date().toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
+    const orderCode = `HMW-${randomCode}`;
+    const bookingDocId = `hmw-${Date.now()}-${randomCode}`;
+
+    const itemsPayload = selectedItems.slice(0, 30).map((i) => ({
+      id: i.id,
+      name: i.name,
+      qty: i.qty,
+      unitPrice: i.price,
+    }));
+
+    const bookingPayload = {
+      orderCode,
+      userId: isLoyaltySignedIn && user ? user.uid : '',
+      customerEmail: isLoyaltySignedIn && user?.email ? user.email : '',
+      isGuest: !isLoyaltySignedIn,
+      pickupDateIso: selectedDay.iso,
       pickupDayLabel: `${selectedDay.dayName}, ${selectedDay.dateLabel}`,
+      pickupSlotId: selectedSlot.id,
       pickupWindow: selectedSlot.window,
       turnaround,
-      customer: { ...customer },
-      items: selectedItems.map((i) => ({
-        id: i.id,
-        name: i.name,
-        qty: i.qty,
-        unitPrice: i.price,
-      })),
+      fullName: customer.fullName.trim().slice(0, 120),
+      phone: customer.phone.trim().slice(0, 25),
+      address: customer.address.trim().slice(0, 240),
+      postalCode: customer.postalCode.trim().slice(0, 12),
+      notes: customer.notes.trim().slice(0, 300),
+      items: itemsPayload,
       detergent,
       washTemp,
       finish,
       paymentMethod,
+      paymentStatus: paymentMethod === 'card' ? 'paid' : 'pending',
+      orderStatus: 'booked',
       subtotal,
+      loyaltyDiscountRate,
+      loyaltyDiscountAmount,
       deliveryFee,
       expressFee,
       total: grandTotal,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     };
-    setConfirmedOrder(order);
+
+    try {
+      await setDoc(doc(db, 'bookings', bookingDocId), bookingPayload);
+      if (isLoyaltySignedIn && user) {
+        void updateOwnProfile({
+          displayName: customer.fullName,
+          phone: customer.phone,
+          address: customer.address,
+          postalCode: customer.postalCode,
+        });
+      }
+      const order: ConfirmedOrder = {
+        orderId: orderCode,
+        createdAt: new Date().toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        pickupDayLabel: `${selectedDay.dayName}, ${selectedDay.dateLabel}`,
+        pickupWindow: selectedSlot.window,
+        turnaround,
+        isGuest: !isLoyaltySignedIn,
+        customerEmail: isLoyaltySignedIn && user?.email ? user.email : '',
+        customer: { ...customer },
+        items: itemsPayload,
+        detergent,
+        washTemp,
+        finish,
+        paymentMethod,
+        subtotal,
+        loyaltyDiscountRate,
+        loyaltyDiscountAmount,
+        deliveryFee,
+        expressFee,
+        total: grandTotal,
+      };
+      setConfirmedOrder(order);
+    } catch (error) {
+      setSubmittingOrder(false);
+      handleFirestoreError(error, OperationType.CREATE, `bookings/${bookingDocId}`);
+    } finally {
+      setSubmittingOrder(false);
+    }
   }
 
   function buildReceiptText(order: ConfirmedOrder): string {
     const lines = [
       `HelpMeWash Booking ${order.orderId}`,
+      `Type: ${order.isGuest ? 'Guest Checkout' : `Loyalty Member (${siteConfig.loyaltyDiscountPercent}% Off)`}`,
       `Pickup: ${order.pickupDayLabel} (${order.pickupWindow})`,
       `Return: ${order.turnaround === 'express' ? 'Express Next-Day' : 'Standard 48-Hour'}`,
       `Customer: ${order.customer.fullName} · ${order.customer.phone}`,
@@ -244,6 +344,9 @@ export function BookingWizard({
       ...order.items.map(
         (i) => `- ${i.qty}x ${i.name} (${formatCurrency(i.qty * i.unitPrice)})`
       ),
+      ...(order.loyaltyDiscountAmount > 0
+        ? [`Loyalty Discount (${siteConfig.loyaltyDiscountPercent}%): -${formatCurrency(order.loyaltyDiscountAmount)}`]
+        : []),
       `Care: ${order.detergent === 'signature' ? 'Signature Fresh' : 'Hypoallergenic'}, ${
         order.washTemp === 'cold' ? 'Cold Wash' : 'Warm Wash'
       }, ${order.finish === 'folded' ? 'Neatly Folded' : 'Tops on Hangers'}`,
@@ -294,9 +397,10 @@ export function BookingWizard({
     },
   ];
 
-  // If confirmed, show clean Receipt State
+  // Confirmation Receipt State
   if (confirmedOrder) {
-    const whatsappHref = `https://wa.me/6588253809?text=${encodeURIComponent(
+    const whatsappClean = siteConfig.whatsappNumber.replace(/\D/g, '');
+    const whatsappHref = `https://wa.me/65${whatsappClean}?text=${encodeURIComponent(
       buildReceiptText(confirmedOrder)
     )}`;
 
@@ -311,7 +415,7 @@ export function BookingWizard({
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-[#EBBF4B]">
-                    Booking Confirmed
+                    Booking Saved &amp; Confirmed
                   </p>
                   <h2 className="font-display text-2xl font-bold text-white">
                     Order <span className="font-mono">{confirmedOrder.orderId}</span>
@@ -353,6 +457,12 @@ export function BookingWizard({
                     Care &amp; Payment Summary
                   </h3>
                   <p className="text-sm text-[#0E2742]">
+                    <span className="font-semibold">Booking Type:</span>{' '}
+                    {confirmedOrder.isGuest
+                      ? 'Guest Checkout'
+                      : `Loyalty Member (${siteConfig.loyaltyDiscountPercent}% Off)`}
+                  </p>
+                  <p className="text-sm text-[#0E2742]">
                     <span className="font-semibold">Turnaround:</span>{' '}
                     {confirmedOrder.turnaround === 'express'
                       ? 'Express Next-Day Return'
@@ -365,14 +475,6 @@ export function BookingWizard({
                       : 'Hypoallergenic'}{' '}
                     · {confirmedOrder.washTemp === 'cold' ? 'Cold Wash' : 'Warm Wash'} ·{' '}
                     {confirmedOrder.finish === 'folded' ? 'Neatly Folded' : 'Tops on Hangers'}
-                  </p>
-                  <p className="text-sm text-[#0E2742]">
-                    <span className="font-semibold">Payment:</span>{' '}
-                    {confirmedOrder.paymentMethod === 'paynow'
-                      ? 'PayNow QR Verified'
-                      : confirmedOrder.paymentMethod === 'card'
-                        ? 'Card Paid'
-                        : 'Pay on Pickup (Cash / PayNow)'}
                   </p>
                 </div>
               </div>
@@ -396,6 +498,14 @@ export function BookingWizard({
                       </span>
                     </div>
                   ))}
+                  {confirmedOrder.loyaltyDiscountAmount > 0 && (
+                    <div className="flex items-center justify-between px-4 py-2.5 text-sm bg-[#FBF8F1] text-[#0E2742] font-semibold">
+                      <span>Loyalty Member Discount ({siteConfig.loyaltyDiscountPercent}%)</span>
+                      <span className="tabular-nums text-emerald-800">
+                        -{formatCurrency(confirmedOrder.loyaltyDiscountAmount)}
+                      </span>
+                    </div>
+                  )}
                   {confirmedOrder.expressFee > 0 && (
                     <div className="flex items-center justify-between px-4 py-2.5 text-sm bg-white text-[#44596F]">
                       <span>Express Next-Day Turnaround</span>
@@ -430,7 +540,7 @@ export function BookingWizard({
                     className="inline-flex items-center gap-2 px-5 py-3 min-h-[44px] bg-[#0E2742] hover:bg-[#173B63] text-white text-sm font-bold rounded-xl transition-colors whitespace-nowrap"
                   >
                     <MessageCircle className="w-4 h-4 text-[#EBBF4B]" aria-hidden="true" />
-                    <span>Send to WhatsApp (8825 3809)</span>
+                    <span>Send to WhatsApp ({siteConfig.whatsappNumber})</span>
                   </a>
 
                   <button
@@ -450,6 +560,16 @@ export function BookingWizard({
                       </>
                     )}
                   </button>
+
+                  {!confirmedOrder.isGuest && (
+                    <button
+                      type="button"
+                      onClick={onOpenAccount}
+                      className="px-4 py-3 min-h-[44px] bg-[#F7F3EA] hover:bg-[#EBBF4B] text-[#0E2742] text-sm font-bold rounded-xl transition-colors cursor-pointer whitespace-nowrap"
+                    >
+                      View My Orders
+                    </button>
+                  )}
                 </div>
 
                 <button
@@ -471,7 +591,7 @@ export function BookingWizard({
     <section id="booking" className="py-10 sm:py-14">
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
         {/* Section Heading + 3-Step Indicator Bar */}
-        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6 mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6 mb-6">
           <div className="space-y-1.5">
             <p className="text-xs font-bold uppercase tracking-wider text-[#44596F]">
               3-Step Online Booking
@@ -533,6 +653,71 @@ export function BookingWizard({
               );
             })}
           </div>
+        </div>
+
+        {/* Loyalty / Guest Checkout Bar */}
+        <div className="mb-5 bg-white rounded-xl border border-[#E2D9C5] px-4 sm:px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          {isLoyaltySignedIn && user ? (
+            <>
+              <div className="flex items-center gap-3 text-sm">
+                <div className="w-8 h-8 rounded-full bg-[#EBBF4B] text-[#0E2742] flex items-center justify-center shrink-0">
+                  <Award className="w-4 h-4" aria-hidden="true" />
+                </div>
+                <div>
+                  <span className="font-display font-bold text-[#0E2742]">
+                    {siteConfig.loyaltyDiscountPercent}% Loyalty Member Discount Active
+                  </span>
+                  <span className="text-xs text-[#44596F] block sm:inline sm:ml-2">
+                    Signed in as {user.email}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onOpenAccount}
+                  className="text-xs font-bold text-[#0E2742] underline underline-offset-4 cursor-pointer"
+                >
+                  My Orders
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void signOutUser()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[34px] rounded-lg border border-[#D8CEB8] hover:bg-[#F7F3EA] text-xs font-semibold text-[#0E2742] cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 text-sm">
+                <div className="w-8 h-8 rounded-full bg-[#F7F3EA] text-[#0E2742] flex items-center justify-center shrink-0">
+                  <Award className="w-4 h-4" aria-hidden="true" />
+                </div>
+                <div>
+                  <span className="font-display font-bold text-[#0E2742]">
+                    Guest Checkout Enabled
+                  </span>
+                  <span className="text-xs text-[#44596F] block sm:inline sm:ml-2">
+                    Book right away, or sign in with Google for{' '}
+                    <span className="font-bold text-[#0E2742]">
+                      {siteConfig.loyaltyDiscountPercent}% off every order
+                    </span>
+                    .
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void signInWithGoogle()}
+                className="px-4 py-2 min-h-[38px] bg-[#0E2742] hover:bg-[#173B63] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              >
+                Sign in for {siteConfig.loyaltyDiscountPercent}% Off
+              </button>
+            </>
+          )}
         </div>
 
         {/* Main 3-Step Workspace Card */}
@@ -615,11 +800,7 @@ export function BookingWizard({
                           </div>
                           <span
                             className={`text-xs font-semibold ${
-                              active
-                                ? 'text-[#EBBF4B]'
-                                : slot.availability === 'Few Slots'
-                                  ? 'text-amber-700'
-                                  : 'text-[#44596F]'
+                              active ? 'text-[#EBBF4B]' : 'text-[#44596F]'
                             }`}
                           >
                             {slot.availability}
@@ -687,7 +868,7 @@ export function BookingWizard({
                             turnaround === 'express' ? 'text-[#EBBF4B]' : 'text-[#0E2742]'
                           }`}
                         >
-                          +$8.00
+                          +{formatCurrency(siteConfig.expressFee)}
                         </span>
                       </div>
                       <p
@@ -728,7 +909,8 @@ export function BookingWizard({
                         value={customer.fullName}
                         onChange={(e) => {
                           setCustomer({ ...customer, fullName: e.target.value });
-                          if (step1Errors.fullName) setStep1Errors({ ...step1Errors, fullName: undefined });
+                          if (step1Errors.fullName)
+                            setStep1Errors({ ...step1Errors, fullName: undefined });
                         }}
                         placeholder="e.g. Sarah Tan"
                         className="w-full px-3.5 py-2.5 min-h-[42px] bg-white border border-[#D8CEB8] rounded-xl text-sm text-[#0E2742] focus:outline-none focus:ring-2 focus:ring-[#0E2742]"
@@ -751,7 +933,8 @@ export function BookingWizard({
                         value={customer.phone}
                         onChange={(e) => {
                           setCustomer({ ...customer, phone: e.target.value });
-                          if (step1Errors.phone) setStep1Errors({ ...step1Errors, phone: undefined });
+                          if (step1Errors.phone)
+                            setStep1Errors({ ...step1Errors, phone: undefined });
                         }}
                         placeholder="e.g. 9123 4567"
                         className="w-full px-3.5 py-2.5 min-h-[42px] bg-white border border-[#D8CEB8] rounded-xl text-sm text-[#0E2742] tabular-nums focus:outline-none focus:ring-2 focus:ring-[#0E2742]"
@@ -775,7 +958,8 @@ export function BookingWizard({
                           value={customer.address}
                           onChange={(e) => {
                             setCustomer({ ...customer, address: e.target.value });
-                            if (step1Errors.address) setStep1Errors({ ...step1Errors, address: undefined });
+                            if (step1Errors.address)
+                              setStep1Errors({ ...step1Errors, address: undefined });
                           }}
                           placeholder="e.g. 128 River Valley Rd #08-14"
                           className="w-full px-3.5 py-2.5 min-h-[42px] bg-white border border-[#D8CEB8] rounded-xl text-sm text-[#0E2742] focus:outline-none focus:ring-2 focus:ring-[#0E2742]"
@@ -889,18 +1073,28 @@ export function BookingWizard({
                             : 'bg-white border-[#E2D9C5] hover:border-[#0E2742]/40'
                         }`}
                       >
-                        <div>
-                          <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-[#44596F]">
-                            <span>{item.categoryLabel}</span>
-                            <span aria-hidden="true">·</span>
-                            <span>{item.serviceType}</span>
+                        <div className="flex items-start gap-3">
+                          {item.imageUrl && (
+                            <img
+                              src={item.imageUrl}
+                              alt={item.name}
+                              referrerPolicy="no-referrer"
+                              className="w-16 h-16 rounded-lg object-cover border border-[#EFE9DA] shrink-0"
+                            />
+                          )}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[#44596F]">
+                              <span className="truncate">{item.categoryLabel}</span>
+                              <span aria-hidden="true">·</span>
+                              <span className="truncate">{item.serviceType}</span>
+                            </div>
+                            <h4 className="font-display font-bold text-base text-[#0E2742] mt-1">
+                              {item.name}
+                            </h4>
+                            <p className="text-xs text-[#44596F] leading-relaxed mt-1">
+                              {item.description}
+                            </p>
                           </div>
-                          <h4 className="font-display font-bold text-base text-[#0E2742] mt-1">
-                            {item.name}
-                          </h4>
-                          <p className="text-xs text-[#44596F] leading-relaxed mt-1">
-                            {item.description}
-                          </p>
                         </div>
 
                         <div className="flex items-center justify-between pt-2 border-t border-[#EFE9DA]">
@@ -1135,6 +1329,12 @@ export function BookingWizard({
                       {formatCurrency(subtotal)}
                     </span>
                   </div>
+                  {loyaltyDiscountAmount > 0 && (
+                    <div className="flex items-center justify-between text-emerald-800 font-semibold">
+                      <span>Loyalty ({siteConfig.loyaltyDiscountPercent}% Off)</span>
+                      <span className="tabular-nums">-{formatCurrency(loyaltyDiscountAmount)}</span>
+                    </div>
+                  )}
                   {expressFee > 0 && (
                     <div className="flex items-center justify-between text-[#44596F]">
                       <span>Express Next-Day</span>
@@ -1149,15 +1349,15 @@ export function BookingWizard({
                       {subtotal === 0
                         ? '$0.00'
                         : deliveryFee === 0
-                          ? 'Free ($30+ order)'
+                          ? `Free ($${siteConfig.freeDeliveryThreshold}+ order)`
                           : formatCurrency(deliveryFee)}
                     </span>
                   </div>
-                  {subtotal > 0 && subtotal < FREE_DELIVERY_THRESHOLD && (
+                  {subtotal > 0 && subtotal < siteConfig.freeDeliveryThreshold && (
                     <p className="text-xs text-[#44596F] bg-white px-3 py-2 rounded-lg border border-[#E2D9C5]">
                       Add{' '}
                       <span className="font-bold text-[#0E2742] tabular-nums">
-                        {formatCurrency(FREE_DELIVERY_THRESHOLD - subtotal)}
+                        {formatCurrency(siteConfig.freeDeliveryThreshold - subtotal)}
                       </span>{' '}
                       more for free pickup &amp; delivery.
                     </p>
@@ -1299,7 +1499,6 @@ export function BookingWizard({
                 {/* Method-specific panel */}
                 {paymentMethod === 'paynow' && (
                   <div className="bg-[#F7F3EA] rounded-2xl border border-[#E2D9C5] p-5 sm:p-6 flex flex-col sm:flex-row items-center gap-6">
-                    {/* Crisp SVG PayNow QR pattern */}
                     <div className="w-36 h-36 bg-white p-3 rounded-xl border border-[#D8CEB8] shrink-0 flex items-center justify-center">
                       <svg
                         viewBox="0 0 100 100"
@@ -1473,10 +1672,10 @@ export function BookingWizard({
                     {customer.address}, {customer.postalCode}
                   </p>
                   <p>
-                    <span className="font-semibold text-[#0E2742]">Preferences:</span>{' '}
-                    {detergent === 'signature' ? 'Fresh Scent' : 'Sensitive Free'} ·{' '}
-                    {washTemp === 'cold' ? 'Cold Safe' : 'Warm 40°C'} ·{' '}
-                    {finish === 'folded' ? 'Neatly Folded' : 'With Hangers'}
+                    <span className="font-semibold text-[#0E2742]">Checkout:</span>{' '}
+                    {isLoyaltySignedIn
+                      ? `Loyalty Member (${siteConfig.loyaltyDiscountPercent}% Off)`
+                      : 'Guest Checkout'}
                   </p>
                 </div>
 
@@ -1492,6 +1691,12 @@ export function BookingWizard({
                       </span>
                     </div>
                   ))}
+                  {loyaltyDiscountAmount > 0 && (
+                    <div className="flex items-center justify-between text-emerald-800 font-semibold">
+                      <span>Loyalty Discount ({siteConfig.loyaltyDiscountPercent}%)</span>
+                      <span className="tabular-nums">-{formatCurrency(loyaltyDiscountAmount)}</span>
+                    </div>
+                  )}
                   {expressFee > 0 && (
                     <div className="flex items-center justify-between text-[#44596F]">
                       <span>Express Next-Day Return</span>
@@ -1521,11 +1726,14 @@ export function BookingWizard({
                   </button>
                   <button
                     type="button"
-                    onClick={handleConfirmOrder}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3.5 min-h-[48px] bg-[#EBBF4B] hover:bg-[#DDA928] text-[#0E2742] font-display font-bold text-sm sm:text-base rounded-xl transition-colors cursor-pointer"
+                    disabled={submittingOrder}
+                    onClick={() => void handleConfirmOrder()}
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3.5 min-h-[48px] bg-[#EBBF4B] hover:bg-[#DDA928] text-[#0E2742] font-display font-bold text-sm sm:text-base rounded-xl transition-colors cursor-pointer disabled:opacity-60"
                   >
                     <Check className="w-4 h-4 stroke-[2.5]" aria-hidden="true" />
-                    <span>Confirm &amp; Book Pickup</span>
+                    <span>
+                      {submittingOrder ? 'Saving Booking...' : 'Confirm & Book Pickup'}
+                    </span>
                   </button>
                 </div>
               </div>

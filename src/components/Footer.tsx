@@ -1,6 +1,16 @@
 import { Instagram, MessageCircle, ShieldCheck, Tag, Clock } from 'lucide-react';
+import { useFirebase } from '../contexts/FirebaseContext';
+import type { AppView } from './Navbar';
 
-export function Footer() {
+interface FooterProps {
+  onNavigateView: (view: AppView) => void;
+}
+
+export function Footer({ onNavigateView }: FooterProps) {
+  const { siteConfig } = useFirebase();
+  const whatsappClean = siteConfig.whatsappNumber.replace(/\D/g, '');
+  const instagramSlug = siteConfig.instagramHandle.replace(/^@/, '');
+
   return (
     <footer
       id="contact"
@@ -10,7 +20,7 @@ export function Footer() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 items-center pb-8 border-b border-[#EFE9DA]">
           {/* Instagram */}
           <a
-            href="https://instagram.com/helpmewash"
+            href={`https://instagram.com/${instagramSlug}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-3.5 group"
@@ -21,14 +31,14 @@ export function Footer() {
             <div>
               <span className="block text-xs text-[#44596F]">Follow us on Instagram</span>
               <span className="font-display font-bold text-base text-[#0E2742] group-hover:underline">
-                @helpmewash
+                {siteConfig.instagramHandle}
               </span>
             </div>
           </a>
 
           {/* WhatsApp */}
           <a
-            href="https://wa.me/6588253809"
+            href={`https://wa.me/65${whatsappClean}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-3.5 group"
@@ -39,7 +49,7 @@ export function Footer() {
             <div>
               <span className="block text-xs text-[#44596F]">WhatsApp us now</span>
               <span className="font-display font-extrabold text-lg text-[#0E2742] tabular-nums group-hover:underline">
-                8825 3809
+                {siteConfig.whatsappNumber}
               </span>
               <span className="block text-[11px] text-[#44596F]">
                 Book your collection today!
@@ -81,16 +91,28 @@ export function Footer() {
 
         <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#44596F]">
           <p>© {new Date().getFullYear()} HelpMeWash. All rights reserved.</p>
-          <div className="flex items-center gap-5">
-            <a href="#booking" className="hover:text-[#0E2742] transition-colors">
+          <div className="flex flex-wrap items-center gap-5">
+            <a
+              href="#booking"
+              onClick={() => onNavigateView('store')}
+              className="hover:text-[#0E2742] transition-colors"
+            >
               Book Pickup
             </a>
-            <a href="#services" className="hover:text-[#0E2742] transition-colors">
-              Rate Card
-            </a>
-            <a href="#why-us" className="hover:text-[#0E2742] transition-colors">
-              Why HelpMeWash
-            </a>
+            <button
+              type="button"
+              onClick={() => onNavigateView('account')}
+              className="hover:text-[#0E2742] transition-colors cursor-pointer"
+            >
+              My Orders &amp; Loyalty
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateView('admin')}
+              className="hover:text-[#0E2742] transition-colors cursor-pointer"
+            >
+              Admin Portal
+            </button>
           </div>
         </div>
       </div>

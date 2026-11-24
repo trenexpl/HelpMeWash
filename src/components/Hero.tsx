@@ -9,6 +9,7 @@ import {
   ArrowRight,
   MessageCircle,
 } from 'lucide-react';
+import { useFirebase } from '../contexts/FirebaseContext';
 
 interface HeroProps {
   onStartBooking: () => void;
@@ -24,7 +25,11 @@ const PROCESS_STEPS = [
 ];
 
 export function Hero({ onStartBooking }: HeroProps) {
+  const { siteConfig } = useFirebase();
   const [imgError, setImgError] = useState(false);
+
+  const headlineParts = siteConfig.heroHeadline.split(',');
+  const whatsappClean = siteConfig.whatsappNumber.replace(/\D/g, '');
 
   return (
     <section
@@ -36,7 +41,7 @@ export function Hero({ onStartBooking }: HeroProps) {
           {/* Left Narrative & CTA Column */}
           <div className="lg:col-span-7 flex flex-col justify-between gap-7">
             <div className="space-y-4">
-              <div className="flex items-center gap-3 text-xs sm:text-sm font-medium tracking-wider text-white/80">
+              <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm font-medium tracking-wider text-white/80">
                 <span>YOUR SPEEDY ONLINE LAUNDRY SERVICE</span>
                 <span aria-hidden="true" className="text-[#EBBF4B]">
                   ·
@@ -51,16 +56,20 @@ export function Hero({ onStartBooking }: HeroProps) {
                   textWrap: 'balance',
                 }}
               >
-                Laundry,{' '}
-                <span className="text-[#EBBF4B] block sm:inline">
-                  made easy.
-                </span>
+                {headlineParts.length > 1 ? (
+                  <>
+                    {headlineParts[0]},{' '}
+                    <span className="text-[#EBBF4B] block sm:inline">
+                      {headlineParts.slice(1).join(',').trim()}
+                    </span>
+                  </>
+                ) : (
+                  siteConfig.heroHeadline
+                )}
               </h1>
 
               <p className="text-base sm:text-lg text-white/85 max-w-xl leading-relaxed">
-                Simple pricing for wash, dry, fold &amp; ironing. Book your pickup
-                slot, select your clothes, and check out in under two minutes — all
-                to your doorstep, with no hassle.
+                {siteConfig.heroSubheadline}
               </p>
             </div>
 
@@ -97,13 +106,13 @@ export function Hero({ onStartBooking }: HeroProps) {
               </a>
 
               <a
-                href="https://wa.me/6588253809"
+                href={`https://wa.me/65${whatsappClean}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-3 py-3 min-h-[48px] text-sm font-medium text-white/80 hover:text-[#EBBF4B] transition-colors whitespace-nowrap shrink-0"
               >
                 <MessageCircle className="w-4 h-4 text-[#EBBF4B]" aria-hidden="true" />
-                <span className="tabular-nums">8825 3809</span>
+                <span className="tabular-nums">{siteConfig.whatsappNumber}</span>
               </a>
             </div>
           </div>
@@ -113,7 +122,7 @@ export function Hero({ onStartBooking }: HeroProps) {
             <div className="relative w-full min-h-[260px] lg:min-h-full rounded-2xl overflow-hidden border border-white/15 bg-[#153456]">
               {!imgError ? (
                 <img
-                  src="/src/assets/images/hero_folded_laundry_1795342737074.jpg"
+                  src={siteConfig.heroImageUrl}
                   alt="Neatly folded cotton towels and clean linens in a natural woven wicker basket"
                   referrerPolicy="no-referrer"
                   onError={() => setImgError(true)}
@@ -136,7 +145,9 @@ export function Hero({ onStartBooking }: HeroProps) {
               />
               <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-xs sm:text-sm font-semibold text-white">
                 <span>Wash · Dry · Fold from $30 / 6kg</span>
-                <span className="text-[#EBBF4B]">Free Pickup $30+</span>
+                <span className="text-[#EBBF4B]">
+                  Free Pickup ${siteConfig.freeDeliveryThreshold}+
+                </span>
               </div>
             </div>
           </div>
